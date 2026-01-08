@@ -13,7 +13,8 @@ use tokio_util::io::StreamReader;
 use crate::{
     consts,
     variable::array::{
-        Array, datatype::ArrayDataType, fill_value::FillValue, metadata::ArrayMetadata,
+        Array, blob::ArrayBlobMetadata, datatype::ArrayDataType, fill_value::FillValue,
+        metadata::ArrayMetadata,
     },
 };
 
@@ -21,6 +22,7 @@ pub struct ArrayObjectWriter<S: ObjectStore> {
     store: S,
     variable_dir: object_store::path::Path,
     array_metadatas: Vec<Option<Box<ArrayMetadata>>>,
+    array_blob_metadatas: Vec<ArrayBlobMetadata>,
 }
 
 pub async fn read_array_metadatas<S: ObjectStore>(
@@ -53,13 +55,46 @@ pub async fn read_array_metadatas<S: ObjectStore>(
     Ok(array_metadatas)
 }
 
+pub async fn read_array_blob_metadatas<S: ObjectStore>(
+    store: &S,
+    variable_dir: &object_store::path::Path,
+) -> object_store::Result<Vec<ArrayBlobMetadata>> {
+    let blob_metadata_path = variable_dir.child(consts::VARIABLE_ARRAY_DIR);
+    let mut objects = store.list(Some(&blob_metadata_path));
+
+    let mut array_blob_metadatas = Vec::new();
+
+    while let Ok(Some(json_blob_metadata_obj)) = objects.try_next().await {
+        // In the filename it is stored as: startDatasetIndex_endDatasetIndex
+        let file_name = json_blob_metadata_obj.location.filename().unwrap();
+        let name_parts: Vec<&str> = file_name.split('_').collect();
+        if name_parts.len() != 2 {
+            continue; // Skip files that don't match the expected pattern
+        }
+        let start_dataset_index: usize = name_parts[0].parse().unwrap();
+        let end_dataset_index: usize = name_parts[1].parse().unwrap();
+
+        let metadata = ArrayBlobMetadata {
+            start_dataset_index,
+            end_dataset_index,
+            num_allocations: end_dataset_index - start_dataset_index,
+            object_meta: json_blob_metadata_obj,
+        };
+        array_blob_metadatas.push(metadata);
+    }
+
+    Ok(array_blob_metadatas)
+}
+
+pub fn find_
+
 impl<S: ObjectStore> ArrayObjectWriter<S> {
     pub fn new(store: S, variable_dir: object_store::path::Path) -> Self {
         todo!()
     }
 
     pub async fn define_variable_array<T: ArrayDataType, D: AsRef<str>>(
-        &self,
+        &mut self,
         dataset_index: usize,
         shape: &[usize],
         dimensions: &[D],
@@ -86,10 +121,11 @@ impl<S: ObjectStore> ArrayObjectWriter<S> {
             .put(&metadata_path, PutPayload::from_bytes(json_bytes))
             .await
             .unwrap();
+        self.array_metadatas[dataset_index] = Some(Box::new(metadata));
 
         // If an array is provided, write the array data to the store
         if let Some(array) = array {
-            Self::write_array::<T>(dataset_index, &array, start).await;
+            self.write_array::<T>(dataset_index, &array, start).await;
         }
     }
 
@@ -99,10 +135,19 @@ impl<S: ObjectStore> ArrayObjectWriter<S> {
     }
 
     pub async fn write_array<T: ArrayDataType>(
+        &mut self,
         dataset_index: usize,
         array: &Array<T>,
         start: &[usize],
     ) {
+        // Check if the metadata for the dataset_index exists
+        if self.array_metadatas[dataset_index].is_none() {
+            panic!(
+                "Array metadata for dataset_index {} not found",
+                dataset_index
+            );
+        }
+
         todo!()
     }
 }

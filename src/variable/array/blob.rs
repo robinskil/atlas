@@ -1,6 +1,14 @@
 use bytes::Bytes;
+use object_store::ObjectMeta;
 
 use crate::variable::array::{Array, datatype::ArrayDataType};
+
+pub struct ArrayBlobMetadata {
+    pub start_dataset_index: usize,
+    pub end_dataset_index: usize,
+    pub num_allocations: usize,
+    pub object_meta: ObjectMeta,
+}
 
 pub struct ArrayBlob {
     pub bytes: Bytes,

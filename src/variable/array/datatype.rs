@@ -3,7 +3,7 @@ use crate::{
     variable::array::{error::ArrayValidationError, fill_value::FillValue, util::num_elements},
 };
 
-pub trait ArrayDataType {
+pub trait ArrayDataType: Default {
     /// The element type produced when viewing bytes for a particular lifetime.
     ///
     /// Most scalar types use `T` itself; [`Utf8`] uses `&'a str`.
@@ -133,7 +133,14 @@ impl ArrayDataType for bool {
 }
 
 /// Marker type for UTF-8 inline string arrays.
-pub struct Utf8;
+#[repr(transparent)]
+pub struct Utf8(String);
+
+impl Default for Utf8 {
+    fn default() -> Self {
+        Utf8(String::new())
+    }
+}
 
 impl ArrayDataType for Utf8 {
     type Native<'a> = &'a str;
@@ -222,6 +229,12 @@ impl ArrayDataType for Utf8 {
 /// Marker type for timestamp arrays stored as i64 nanoseconds since UNIX epoch.
 #[repr(transparent)]
 pub struct Timestamp(i64);
+
+impl Default for Timestamp {
+    fn default() -> Self {
+        Timestamp(0)
+    }
+}
 
 impl_array_datatype_numeric!(i8, I8);
 impl_array_datatype_numeric!(i16, I16);
