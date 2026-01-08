@@ -7,8 +7,18 @@ edition = "2024"
 ndarray = "0.17.1"
 bytes = "1.11.0"
 smol_str = "0.3.4"
-smallvec = "1.15.1"
+compact_str = { version = "0.9.0", features = ["serde"] }
+smallvec = { version = "1.15.1", features = ["serde"] }
 parking_lot = "0.12.5"
 tokio = { version = "1.49.0", features = ["full"] }
 bincode = "=2.0.1"
 futures = "0.3.31"
+moka = { version = "0.12.12", features = ["future"] }
+zstd = "0.13.3"
+zerocopy = { version = "0.8.31", features = ["derive"] }
+thiserror = "2.0.17"
+serde = { version = "*", features = ["derive"] }
+simd-json = "0.17.0"
+object_store = "=0.12.4"
+tokio-util = {version = "0.7.18", features = ["io"] }
+chrono = "0.4.42"
