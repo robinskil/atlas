@@ -101,6 +101,7 @@ use crate::{
 
 pub mod blob;
 pub mod datatype;
+pub mod discovery;
 pub mod error;
 pub mod fill_value;
 pub mod metadata;

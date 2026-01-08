@@ -41,7 +41,6 @@
 
 use bytes::BytesMut;
 use chrono::Utc;
-use futures::TryStreamExt;
 use object_store::{ObjectStore, PutPayload};
 use smallvec::SmallVec;
 
@@ -52,6 +51,7 @@ use crate::{
         Array,
         blob::{ArrayBlob, ArrayBlobMetadata, Committed, Uncommitted},
         datatype::ArrayDataType,
+        discovery::{self, ArrayDiscoveryError},
         fill_value::FillValue,
         metadata::ArrayMetadata,
     },
@@ -115,6 +115,18 @@ pub enum ArrayWriteError {
     AllocationLenMismatch,
 }
 
+impl From<ArrayDiscoveryError> for ArrayWriteError {
+    fn from(value: ArrayDiscoveryError) -> Self {
+        match value {
+            ArrayDiscoveryError::ObjectStore(err) => Self::ObjectStore(err),
+            ArrayDiscoveryError::Json(err) => Self::Json(err),
+            ArrayDiscoveryError::DatasetIndexOutOfBounds { dataset_index, len } => {
+                Self::DatasetIndexOutOfBounds { dataset_index, len }
+            }
+        }
+    }
+}
+
 pub struct ArrayObjectWriter<S: ObjectStore> {
     store: S,
     variable_dir: object_store::path::Path,
@@ -122,115 +134,7 @@ pub struct ArrayObjectWriter<S: ObjectStore> {
     array_blob_metadatas: Vec<ArrayBlobMetadata>,
 }
 
-/// Read the latest array metadata for each dataset index.
-///
-/// This scans `array_meta/*.jsonl` under `variable_dir` and returns a vector of length
-/// `datasets_count` where each entry is the **last** `ArrayMetadata` encountered for that index.
-///
-/// # Arguments
-/// - `store`: Object store to read from.
-/// - `variable_dir`: Root directory for the variable (e.g. `variables/variable_0`).
-/// - `datasets_count`: Number of datasets expected; used to size the returned vector.
-///
-/// # Errors
-/// Returns an error if:
-/// - Any object store operation fails.
-/// - Any JSONL line fails to parse as [`ArrayMetadata`].
-/// - A parsed `dataset_index` is `>= datasets_count`.
-pub async fn read_array_metadatas<S: ObjectStore>(
-    store: &S,
-    variable_dir: &object_store::path::Path,
-    datasets_count: usize,
-) -> Result<Vec<Option<Box<ArrayMetadata>>>, ArrayWriteError> {
-    let metadata_path = variable_dir.child(consts::VARIABLE_ARRAY_META_DIR);
-    let mut objects = store.list(Some(&metadata_path));
-
-    let mut array_metadatas = vec![None; datasets_count];
-
-    while let Ok(Some(json_metadata_obj)) = objects.try_next().await {
-        let get_result = store.get(&json_metadata_obj.location).await?;
-        let bytes = get_result.bytes().await?;
-
-        // File is expected to be JSONL (one JSON object per line).
-        for line in bytes.split(|&b| b == b'\n') {
-            if line.is_empty() {
-                continue;
-            }
-            let mut line_buf = line.to_vec();
-            let metadata: ArrayMetadata = simd_json::from_slice(&mut line_buf)?;
-            let index = metadata.dataset_index;
-            if index >= datasets_count {
-                return Err(ArrayWriteError::DatasetIndexOutOfBounds {
-                    dataset_index: index,
-                    len: datasets_count,
-                });
-            }
-            array_metadatas[index] = Some(Box::new(metadata));
-        }
-    }
-
-    Ok(array_metadatas)
-}
-
-/// List blob objects under `array/` and interpret their filenames as allocation ranges.
-///
-/// Blob objects are expected to be named `start_end` (both inclusive), where `start` and `end`
-/// are dataset allocation indices. Objects that do not match this pattern are skipped.
-///
-/// # Arguments
-/// - `store`: Object store to list.
-/// - `variable_dir`: Root directory for the variable.
-///
-/// # Errors
-/// Returns an error if listing the object store fails.
-pub async fn read_array_blob_metadatas<S: ObjectStore>(
-    store: &S,
-    variable_dir: &object_store::path::Path,
-) -> Result<Vec<ArrayBlobMetadata>, ArrayWriteError> {
-    let blob_metadata_path = variable_dir.child(consts::VARIABLE_ARRAY_DIR);
-    let mut objects = store.list(Some(&blob_metadata_path));
-
-    let mut array_blob_metadatas = Vec::new();
-
-    while let Ok(Some(json_blob_metadata_obj)) = objects.try_next().await {
-        // In the filename it is stored as: startDatasetIndex_endDatasetIndex
-        let Some(file_name) = json_blob_metadata_obj.location.filename() else {
-            continue;
-        };
-        let name_parts: Vec<&str> = file_name.split('_').collect();
-        if name_parts.len() != 2 {
-            continue; // Skip files that don't match the expected pattern
-        }
-        let Ok(start_dataset_index) = name_parts[0].parse::<usize>() else {
-            continue;
-        };
-        let Ok(end_dataset_index) = name_parts[1].parse::<usize>() else {
-            continue;
-        };
-
-        let metadata = ArrayBlobMetadata {
-            range: start_dataset_index..=end_dataset_index,
-            path: json_blob_metadata_obj.location.clone(),
-        };
-        array_blob_metadatas.push(metadata);
-    }
-
-    Ok(array_blob_metadatas)
-}
-
-/// Find the blob metadata that contains `allocation_index`.
-///
-/// # Returns
-/// Returns `Some(&ArrayBlobMetadata)` if any entry's `range` contains `allocation_index`.
-pub fn find_array_blob_for_allocation_index(
-    array_blob_metadatas: &[ArrayBlobMetadata],
-    allocation_index: usize,
-) -> Option<&ArrayBlobMetadata> {
-    array_blob_metadatas
-        .iter()
-        .find(|&blob_metadata| blob_metadata.range.contains(&allocation_index))
-        .map(|v| v as _)
-}
+pub use discovery::find_array_blob_for_allocation_index;
 
 impl<S: ObjectStore> ArrayObjectWriter<S> {
     /// Create a writer with empty in-memory metadata.
@@ -285,8 +189,10 @@ impl<S: ObjectStore> ArrayObjectWriter<S> {
         variable_dir: object_store::path::Path,
         datasets_count: usize,
     ) -> Result<Self, ArrayWriteError> {
-        let array_metadatas = read_array_metadatas(&store, &variable_dir, datasets_count).await?;
-        let array_blob_metadatas = read_array_blob_metadatas(&store, &variable_dir).await?;
+        let array_metadatas =
+            discovery::read_array_metadatas(&store, &variable_dir, datasets_count).await?;
+        let array_blob_metadatas =
+            discovery::read_array_blob_metadatas(&store, &variable_dir).await?;
 
         Ok(Self {
             store,
@@ -307,38 +213,9 @@ impl<S: ObjectStore> ArrayObjectWriter<S> {
         store: S,
         variable_dir: object_store::path::Path,
     ) -> Result<Self, ArrayWriteError> {
-        let datasets_count = Self::infer_datasets_count_from_store(&store, &variable_dir).await?;
+        let datasets_count =
+            discovery::infer_datasets_count_from_store(&store, &variable_dir).await?;
         Self::load_from_store(store, variable_dir, datasets_count).await
-    }
-
-    async fn infer_datasets_count_from_store(
-        store: &S,
-        variable_dir: &object_store::path::Path,
-    ) -> Result<usize, ArrayWriteError> {
-        let metadata_path = variable_dir.child(consts::VARIABLE_ARRAY_META_DIR);
-        let mut objects = store.list(Some(&metadata_path));
-
-        let mut max_dataset_index: Option<usize> = None;
-
-        while let Ok(Some(json_metadata_obj)) = objects.try_next().await {
-            let get_result = store.get(&json_metadata_obj.location).await?;
-            let bytes = get_result.bytes().await?;
-
-            for line in bytes.split(|&b| b == b'\n') {
-                if line.is_empty() {
-                    continue;
-                }
-                let mut line_buf = line.to_vec();
-                let metadata: ArrayMetadata = simd_json::from_slice(&mut line_buf)?;
-                max_dataset_index = Some(
-                    max_dataset_index
-                        .map(|cur| cur.max(metadata.dataset_index))
-                        .unwrap_or(metadata.dataset_index),
-                );
-            }
-        }
-
-        Ok(max_dataset_index.map(|v| v + 1).unwrap_or(0))
     }
 
     /// Define (or redefine) a variable array for a dataset index.
@@ -722,7 +599,7 @@ mod tests {
             .await
             .unwrap();
 
-        let metadatas = read_array_blob_metadatas(&store, &variable_dir)
+        let metadatas = discovery::read_array_blob_metadatas(&store, &variable_dir)
             .await
             .unwrap();
         assert_eq!(metadatas.len(), 1);
