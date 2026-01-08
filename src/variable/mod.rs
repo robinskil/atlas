@@ -1,5 +1,6 @@
 //! Layout
 //!
+//! ```text
 //! collection.atlas/
 //!         ├── datasets/
 //!
@@ -16,7 +17,7 @@
 //!                    attributes_meta_0_1000.json
 //!                 attributes/
 //!                    blob_0.bin
-//!
+//! ```
 
 pub mod array;
 pub mod blob_encoding;

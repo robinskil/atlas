@@ -1,6 +1,35 @@
+//! Array datatype definitions.
+//!
+//! This module defines [`ArrayDataType`], which describes how a typed [`crate::variable::array::Array`]
+//! interprets and validates its backing byte buffer.
+//!
+//! ## Core responsibilities
+//! - Define the logical [`crate::dtype::DataType`] for the array.
+//! - Specify required byte alignment (`ALIGNMENT`).
+//! - Specify fixed element width (`BYTE_WIDTH`) or implement variable-width validation.
+//! - Provide `ndarray` views over validated bytes via [`ArrayDataType::as_array`] (and optionally
+//!   [`ArrayDataType::as_array_mut`]).
+//!
+//! ## Validation
+//! The default [`ArrayDataType::validate`] implementation checks:
+//! - alignment of the byte buffer
+//! - exact byte length for fixed-width types
+//!
+//! Variable-width types (e.g. [`Utf8`]) must override `validate` to enforce their encoding.
+//!
+//! ## ndarray views
+//! Most fixed-width types can return **zero-copy** `ndarray` views by reinterpreting the byte
+//! buffer as a slice of native elements.
+//!
+//! [`Utf8`] is variable-width and returns an `ndarray` backed by a `Vec<&str>` (string *references*
+//! into the payload), so it allocates for the index vector even though it does not copy the
+//! underlying string bytes.
+//!
+//!
+//!
 use crate::{
     dtype::DataType,
-    variable::array::{error::ArrayValidationError, fill_value::FillValue, util::num_elements},
+    variable::array::{error::ArrayValidationError, util::num_elements},
 };
 
 pub trait ArrayDataType: Default + Clone {
@@ -90,7 +119,10 @@ macro_rules! impl_array_datatype_numeric {
                 };
 
                 let shape = ndarray::IxDyn(shape);
-                ndarray::ArrayView::from_shape(shape, data).unwrap().into()
+                match ndarray::ArrayView::from_shape(shape, data) {
+                    Ok(view) => view.into(),
+                    Err(e) => panic!("invalid ndarray shape for validated array: {e}"),
+                }
             }
 
             fn as_array_mut<'a>(
@@ -149,7 +181,10 @@ impl ArrayDataType for bool {
         let bools: &'a [bool] =
             unsafe { std::slice::from_raw_parts(bytes.as_ptr() as *const bool, bytes.len()) };
         let shape = ndarray::IxDyn(shape);
-        ndarray::ArrayView::from_shape(shape, bools).unwrap().into()
+        match ndarray::ArrayView::from_shape(shape, bools) {
+            Ok(view) => view.into(),
+            Err(e) => panic!("invalid ndarray shape for validated array: {e}"),
+        }
     }
     fn as_array_mut<'a>(
         bytes: &'a mut [u8],
@@ -232,8 +267,14 @@ impl ArrayDataType for Utf8 {
         bytes: &'a [u8],
         shape: &'a [usize],
     ) -> ndarray::CowArray<'a, Self::Native<'a>, ndarray::IxDyn> {
-        let n: usize = shape.iter().product();
-        let lengths_bytes = n * std::mem::size_of::<u32>();
+        let n = match num_elements(shape) {
+            Ok(n) => n,
+            Err(e) => panic!("invalid shape for array view: {e}"),
+        };
+        let lengths_bytes = match n.checked_mul(std::mem::size_of::<u32>()) {
+            Some(v) => v,
+            None => panic!("invalid shape for array view: element count overflow"),
+        };
 
         // Safety: `Array::new`/`try_new` validate alignment and the lengths prefix.
         let lengths: &'a [u32] =
@@ -244,16 +285,20 @@ impl ArrayDataType for Utf8 {
         let mut out: Vec<&'a str> = Vec::with_capacity(n);
         for &len in lengths {
             let len = len as usize;
-            let end = offset + len;
+            let end = match offset.checked_add(len) {
+                Some(v) => v,
+                None => panic!("invalid utf8 lengths for array view"),
+            };
             // Safety: `Array::new`/`try_new` validate each string span is valid UTF-8.
             let s = unsafe { std::str::from_utf8_unchecked(&payload[offset..end]) };
             out.push(s);
             offset = end;
         }
 
-        ndarray::Array::from_shape_vec(ndarray::IxDyn(shape), out)
-            .unwrap()
-            .into()
+        match ndarray::Array::from_shape_vec(ndarray::IxDyn(shape), out) {
+            Ok(arr) => arr.into(),
+            Err(e) => panic!("invalid ndarray shape for validated array: {e}"),
+        }
     }
 }
 

@@ -14,3 +14,9 @@ pub enum DataType {
     Utf8,
     Timestamp,
 }
+
+impl DataType {
+    pub const fn is_variable_sized(&self) -> bool {
+        matches!(self, DataType::Utf8)
+    }
+}
