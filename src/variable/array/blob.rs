@@ -49,9 +49,7 @@ pub enum ArrayBlobError {
 }
 
 pub struct ArrayBlobMetadata {
-    pub start_dataset_index: usize,
-    pub end_dataset_index: usize,
-    pub num_allocations: usize,
+    pub range: std::ops::RangeInclusive<usize>,
     pub path: object_store::path::Path,
 }
 
@@ -79,20 +77,22 @@ impl<T, B> ArrayBlob<T, B> {
     /// Load an existing blob from an [`ObjectStore`].
     pub async fn try_from_existing<S: ObjectStore>(
         store: &S,
-        path: object_store::path::Path,
+        path: &object_store::path::Path,
     ) -> Result<ArrayBlob<Committed, Bytes>, ArrayBlobError> {
-        let get_result = store.get(&path).await?;
+        let get_result = store.get(path).await?;
         let bytes = get_result.bytes().await?;
-        Ok(ArrayBlob::<Committed, Bytes>::try_from_bytes(
+        ArrayBlob::<Committed, Bytes>::try_from_bytes(
             bytes,
-            Committed { object_path: path },
-        )?)
+            Committed {
+                object_path: path.clone(),
+            },
+        )
     }
 
     /// Load an existing blob from an [`ObjectStore`] and return a mutable buffer.
     pub async fn try_from_existing_mut<S: ObjectStore>(
         store: &S,
-        path: object_store::path::Path,
+        path: &object_store::path::Path,
     ) -> Result<ArrayBlob<Committed, BytesMut>, ArrayBlobError> {
         let immutable_blob = Self::try_from_existing(store, path).await?;
         Ok(immutable_blob.into_mut_blob())
@@ -103,7 +103,7 @@ impl<T, B> ArrayBlob<T, B> {
     /// Prefer [`Self::try_from_existing`] in production code.
     pub async fn from_existing<S: ObjectStore>(
         store: &S,
-        path: object_store::path::Path,
+        path: &object_store::path::Path,
     ) -> ArrayBlob<Committed, Bytes> {
         Self::try_from_existing(store, path)
             .await
@@ -115,7 +115,7 @@ impl<T, B> ArrayBlob<T, B> {
     /// Prefer [`Self::try_from_existing_mut`] in production code.
     pub async fn from_existing_mut<S: ObjectStore>(
         store: &S,
-        path: object_store::path::Path,
+        path: &object_store::path::Path,
     ) -> ArrayBlob<Committed, BytesMut> {
         Self::try_from_existing_mut(store, path)
             .await
@@ -224,7 +224,7 @@ impl<T, B> ArrayBlob<T, B> {
 
 impl ArrayBlob<Committed, Bytes> {
     /// Persist the blob back to its committed object path.
-    pub async fn commit<S: ObjectStore>(&self, store: S) -> object_store::Result<()> {
+    pub async fn commit<S: ObjectStore>(&self, store: &S) -> object_store::Result<()> {
         let put_payload = PutPayload::from(self.buffer.clone());
         store.put(&self.state.object_path, put_payload).await?;
         Ok(())
@@ -235,13 +235,15 @@ impl ArrayBlob<Uncommitted, Bytes> {
     /// Persist an uncommitted blob to `path` and return a committed blob handle.
     pub async fn commit<S: ObjectStore>(
         self,
-        store: S,
-        path: object_store::path::Path,
+        store: &S,
+        path: &object_store::path::Path,
     ) -> object_store::Result<ArrayBlob<Committed, Bytes>> {
         let put_payload = PutPayload::from(self.buffer.clone());
-        store.put(&path, put_payload).await?;
+        store.put(path, put_payload).await?;
         Ok(ArrayBlob {
-            state: Committed { object_path: path },
+            state: Committed {
+                object_path: path.clone(),
+            },
             buffer: self.buffer,
             allocations: self.allocations,
         })
@@ -523,7 +525,7 @@ mod tests {
             .await
             .unwrap();
 
-        let loaded = ArrayBlob::<Committed, Bytes>::try_from_existing(&store, path.clone())
+        let loaded = ArrayBlob::<Committed, Bytes>::try_from_existing(&store, &path)
             .await
             .unwrap();
         assert_eq!(loaded.allocations.len(), 1);
