@@ -17,5 +17,5 @@ pub const VARIABLE_ARRAY_META_DIR: &str = "array_meta/";
 pub const VARIABLE_ATTRIBUTES_DIR: &str = "attributes/";
 pub const VARIABLE_ATTRIBUTES_META_DIR: &str = "attributes_meta/";
 
-pub const MAGIC_NUMBER_COMPRESSED: &[u8; 4] = b"ATLC";
-pub const MAGIC_NUMBER_UNCOMPRESSED: &[u8; 4] = b"ATLU";
+pub const MAGIC_NUMBER_COMPRESSED: &[u8; 8] = b"ATLCZSTD";
+pub const MAGIC_NUMBER_UNCOMPRESSED: &[u8; 8] = b"ATLU____";

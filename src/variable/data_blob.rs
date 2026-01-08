@@ -133,43 +133,44 @@ impl ObjectVariableBlobReader {
         shape: SmallVec<[usize; 4]>,
         array_blob_index: usize,
     ) -> Option<Array<T>> {
-        let blob_file_index = find_range_index(&self.array_blob_ranges, array_blob_index)?;
-        let array_blob = self.read_array_blob(blob_file_index).await?;
-        let index_in_blob = array_blob_index - self.array_blob_ranges[blob_file_index].start();
-        let array = array_blob.get_array::<T>(index_in_blob, shape)?;
+        // let blob_file_index = find_range_index(&self.array_blob_ranges, array_blob_index)?;
+        // let array_blob = self.read_array_blob(blob_file_index).await?;
+        // let index_in_blob = array_blob_index - self.array_blob_ranges[blob_file_index].start();
+        // let array = array_blob.get_array::<T>(index_in_blob, shape)?;
 
-        Some(array)
+        // Some(array)
+        todo!()
     }
 
-    async fn read_array_blob(&self, array_blob_file_index: usize) -> Option<ArrayBlob> {
-        let object_meta = &self.array_blob_files[array_blob_file_index].clone();
-        let store = self.store.clone();
+    // async fn read_array_blob(&self, array_blob_file_index: usize) -> Option<ArrayBlob> {
+    //     let object_meta = &self.array_blob_files[array_blob_file_index].clone();
+    //     let store = self.store.clone();
 
-        let blob_bytes = self
-            .array_blob_cache
-            .try_get_with(array_blob_file_index, async move {
-                let get_result = store.get(&object_meta.location).await;
-                match get_result {
-                    Ok(get_result) => {
-                        let mut bytes = Vec::with_capacity(object_meta.size as usize);
-                        let mut bytes_stream = get_result.into_stream();
-                        while let Some(chunk) = bytes_stream.next().await {
-                            let chunk = chunk.expect("Error reading array blob");
-                            bytes.extend_from_slice(&chunk);
-                        }
-                        Ok::<_, String>(Bytes::from(bytes))
-                    }
-                    Err(e) => {
-                        panic!("Error fetching array blob: {}", e);
-                    }
-                }
-            })
-            .await;
+    //     let blob_bytes = self
+    //         .array_blob_cache
+    //         .try_get_with(array_blob_file_index, async move {
+    //             let get_result = store.get(&object_meta.location).await;
+    //             match get_result {
+    //                 Ok(get_result) => {
+    //                     let mut bytes = Vec::with_capacity(object_meta.size as usize);
+    //                     let mut bytes_stream = get_result.into_stream();
+    //                     while let Some(chunk) = bytes_stream.next().await {
+    //                         let chunk = chunk.expect("Error reading array blob");
+    //                         bytes.extend_from_slice(&chunk);
+    //                     }
+    //                     Ok::<_, String>(Bytes::from(bytes))
+    //                 }
+    //                 Err(e) => {
+    //                     panic!("Error fetching array blob: {}", e);
+    //                 }
+    //             }
+    //         })
+    //         .await;
 
-        blob_bytes
-            .ok()
-            .map(|bytes| ArrayBlob::new_from_bytes(bytes))
-    }
+    //     blob_bytes
+    //         .ok()
+    //         .map(|bytes| ArrayBlob::new_from_bytes(bytes))
+    // }
 
     pub async fn read_variable_array<T: ArrayDataType>(
         &'_ self,

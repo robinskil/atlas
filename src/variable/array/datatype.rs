@@ -3,11 +3,11 @@ use crate::{
     variable::array::{error::ArrayValidationError, fill_value::FillValue, util::num_elements},
 };
 
-pub trait ArrayDataType: Default {
+pub trait ArrayDataType: Default + Clone {
     /// The element type produced when viewing bytes for a particular lifetime.
     ///
     /// Most scalar types use `T` itself; [`Utf8`] uses `&'a str`.
-    type Native<'a>
+    type Native<'a>: Clone
     where
         Self: 'a;
 
@@ -60,6 +60,12 @@ pub trait ArrayDataType: Default {
         bytes: &'a [u8],
         shape: &'a [usize],
     ) -> ndarray::CowArray<'a, Self::Native<'a>, ndarray::IxDyn>;
+    fn as_array_mut<'a>(
+        _bytes: &'a mut [u8],
+        _shape: &'a [usize],
+    ) -> Option<ndarray::ArrayViewMut<'a, Self::Native<'a>, ndarray::IxDyn>> {
+        None
+    }
 }
 
 macro_rules! impl_array_datatype_numeric {
@@ -85,6 +91,21 @@ macro_rules! impl_array_datatype_numeric {
 
                 let shape = ndarray::IxDyn(shape);
                 ndarray::ArrayView::from_shape(shape, data).unwrap().into()
+            }
+
+            fn as_array_mut<'a>(
+                bytes: &'a mut [u8],
+                shape: &'a [usize],
+            ) -> Option<ndarray::ArrayViewMut<'a, Self::Native<'a>, ndarray::IxDyn>> {
+                let data: &'a mut [$ty] = unsafe {
+                    std::slice::from_raw_parts_mut(
+                        bytes.as_mut_ptr() as *mut $ty,
+                        bytes.len() / std::mem::size_of::<$ty>(),
+                    )
+                };
+
+                let shape = ndarray::IxDyn(shape);
+                ndarray::ArrayViewMut::from_shape(shape, data).ok()
             }
         }
     };
@@ -130,10 +151,20 @@ impl ArrayDataType for bool {
         let shape = ndarray::IxDyn(shape);
         ndarray::ArrayView::from_shape(shape, bools).unwrap().into()
     }
+    fn as_array_mut<'a>(
+        bytes: &'a mut [u8],
+        shape: &'a [usize],
+    ) -> Option<ndarray::ArrayViewMut<'a, Self::Native<'a>, ndarray::IxDyn>> {
+        let bools: &'a mut [bool] =
+            unsafe { std::slice::from_raw_parts_mut(bytes.as_mut_ptr() as *mut bool, bytes.len()) };
+        let shape = ndarray::IxDyn(shape);
+        ndarray::ArrayViewMut::from_shape(shape, bools).ok()
+    }
 }
 
 /// Marker type for UTF-8 inline string arrays.
 #[repr(transparent)]
+#[derive(Clone)]
 pub struct Utf8(String);
 
 impl Default for Utf8 {
@@ -228,6 +259,7 @@ impl ArrayDataType for Utf8 {
 
 /// Marker type for timestamp arrays stored as i64 nanoseconds since UNIX epoch.
 #[repr(transparent)]
+#[derive(Clone, Copy)]
 pub struct Timestamp(i64);
 
 impl Default for Timestamp {
