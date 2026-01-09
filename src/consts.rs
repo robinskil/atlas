@@ -19,3 +19,13 @@ pub const VARIABLE_ATTRIBUTES_META_DIR: &str = "attributes_meta/";
 
 pub const MAGIC_NUMBER_COMPRESSED: &[u8; 8] = b"ATLCZSTD";
 pub const MAGIC_NUMBER_UNCOMPRESSED: &[u8; 8] = b"ATLU____";
+
+/// Schema directories for the collection and individual datasets
+/// collection.atlas
+///     ├── schema/
+///         ├── base_schema.json
+///         ├── wal_<unix_timestamp>.json
+///
+pub const SCHEMA_DIR: &str = "schema/";
+pub const SCHEMA_FILE_CACHED: &str = "collection_schema_cached.json";
+pub const DATASETS_SCHEMA_DIR: &str = "datasets/";

@@ -22,11 +22,7 @@
 pub mod array;
 pub mod attributes;
 pub mod blob_encoding;
-pub mod consts;
-pub mod data_blob;
-pub mod metadata_blob;
 pub mod reader;
-pub mod util;
 pub mod writer;
 
 use crate::{dtype::DataType, variable::blob_encoding::EncodingType};

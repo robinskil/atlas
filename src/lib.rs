@@ -1,4 +1,5 @@
 pub mod consts;
+pub mod dataset;
 pub mod dtype;
 pub mod header;
 pub mod io;
