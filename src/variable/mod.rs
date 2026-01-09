@@ -20,6 +20,7 @@
 //! ```
 
 pub mod array;
+pub mod attributes;
 pub mod blob_encoding;
 pub mod consts;
 pub mod data_blob;
