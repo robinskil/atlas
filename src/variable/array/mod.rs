@@ -89,6 +89,8 @@
 //! - [`Array::as_ndarray`] creates an `ndarray` view after validation.
 //! - [`Array::try_from_ndarray`] creates a **borrowed, zero-copy** `Array` view over an
 //!   `ndarray` backing buffer, but only for **standard-layout** (contiguous, row-major) arrays.
+//!
+
 use smallvec::SmallVec;
 
 use crate::{
