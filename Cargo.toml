@@ -22,3 +22,4 @@ simd-json = "0.17.0"
 object_store = "=0.12.4"
 tokio-util = {version = "0.7.18", features = ["io"] }
 chrono = "0.4.42"
+lasso = "0.7.3"

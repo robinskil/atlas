@@ -1,5 +1,6 @@
 use crate::dtype::DataType;
 
+pub mod raw;
 pub mod reader;
 pub mod wal;
 pub mod writer;
